@@ -1,0 +1,29 @@
+{
+  "name": "openclaw-shen-lun-teacher-skill",
+  "version": "1.0.0",
+  "description": "申论教学 Skill - 基于GLM大模型的申论学习助手",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "scrape": "node src/index.js scrape",
+    "process": "node src/index.js process",
+    "test": "node --test src/**/*.test.js"
+  },
+  "keywords": [
+    "shenlun",
+    "education",
+    "llm",
+    "glm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^16.4.0",
+    "jsdom": "^24.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
