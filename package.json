@@ -6,6 +6,12 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "question": "node src/index.js question",
+    "guide": "node src/index.js guide",
+    "hint": "node src/index.js hint",
+    "score": "node src/index.js score",
+    "stats": "node src/index.js stats",
+    "list": "node src/index.js list",
     "scrape": "node src/index.js scrape",
     "process": "node src/index.js process",
     "test": "node --test src/**/*.test.js"

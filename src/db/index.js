@@ -297,3 +297,116 @@ export function getAnswerHistory(sessionId, questionId = null) {
   const stmt = db.prepare(sql);
   return stmt.all(...params);
 }
+
+// ============ Smart Question Query ============
+
+/**
+ * 按条件查询题目列表
+ * @param {object} options - 查询选项
+ * @param {string} options.province - 省份
+ * @param {number} options.year - 年份
+ * @param {number} options.questionNumber - 题号
+ * @param {string} options.level - 级别（国考/省考）
+ * @returns {Array} 题目列表
+ */
+export function findQuestionsByConditions(options = {}) {
+  const db = getDatabase();
+  const { province, year, questionNumber, level } = options;
+
+  let sql = `
+    SELECT q.*, p.province, p.year, p.level
+    FROM questions q
+    JOIN exam_papers p ON q.paper_id = p.id
+    WHERE 1=1
+  `;
+  const params = [];
+
+  if (province) {
+    sql += ` AND p.province LIKE ?`;
+    params.push(`%${province}%`);
+  }
+  if (year) {
+    sql += ` AND p.year = ?`;
+    params.push(year);
+  }
+  if (questionNumber) {
+    sql += ` AND q.question_number = ?`;
+    params.push(questionNumber);
+  }
+  if (level) {
+    sql += ` AND p.level LIKE ?`;
+    params.push(`%${level}%`);
+  }
+
+  sql += ` ORDER BY p.year DESC, q.question_number ASC`;
+
+  const stmt = db.prepare(sql);
+  return stmt.all(...params);
+}
+
+/**
+ * 获取题目的历史答题记录（包含分数和时间）
+ * @param {string} sessionId - 会话ID
+ * @param {number} questionId - 题目ID
+ * @returns {object|null} 最近一次答题记录
+ */
+export function getLatestAnswerRecord(sessionId, questionId) {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT * FROM answer_records
+    WHERE session_id = ? AND question_id = ?
+    ORDER BY answered_at DESC
+    LIMIT 1
+  `);
+  return stmt.get(sessionId, questionId);
+}
+
+/**
+ * 获取可用的省份列表
+ * @returns {Array} 省份列表
+ */
+export function getAvailableProvinces() {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT DISTINCT province FROM exam_papers ORDER BY province
+  `);
+  return stmt.all().map(row => row.province);
+}
+
+/**
+ * 获取可用年份列表
+ * @param {string} province - 省份（可选）
+ * @returns {Array} 年份列表
+ */
+export function getAvailableYears(province = null) {
+  const db = getDatabase();
+  let sql = `SELECT DISTINCT year FROM exam_papers`;
+  const params = [];
+
+  if (province) {
+    sql += ` WHERE province = ?`;
+    params.push(province);
+  }
+
+  sql += ` ORDER BY year DESC`;
+
+  const stmt = db.prepare(sql);
+  return stmt.all(...params).map(row => row.year);
+}
+
+/**
+ * 获取试卷统计信息
+ * @returns {object} 统计信息
+ */
+export function getPaperStats() {
+  const db = getDatabase();
+  const papersStmt = db.prepare(`SELECT COUNT(*) as count FROM exam_papers`);
+  const questionsStmt = db.prepare(`SELECT COUNT(*) as count FROM questions`);
+  const processedStmt = db.prepare(`SELECT COUNT(*) as count FROM exam_papers WHERE processed_at IS NOT NULL`);
+
+  return {
+    totalPapers: papersStmt.get().count,
+    totalQuestions: questionsStmt.get().count,
+    processedPapers: processedStmt.get().count,
+  };
+}
