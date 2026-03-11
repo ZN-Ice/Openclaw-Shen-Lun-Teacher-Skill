@@ -189,7 +189,7 @@ export function createProblemDoc(data) {
   const result = stmt.run({
     questionId: data.questionId,
     materialId: data.materialId,
-    verified: data.verified || false,
+    verified: data.verified ? 1 : 0,  // SQLite用0/1代替boolean
   });
   return result.lastInsertRowid;
 }
@@ -209,11 +209,22 @@ export function findMaterialsForQuestion(questionId) {
 
 export function createSession(sessionId) {
   const db = getDatabase();
+  // 使用INSERT OR IGNORE避免重复插入
   const stmt = db.prepare(`
-    INSERT INTO user_sessions (id) VALUES (?)
+    INSERT OR IGNORE INTO user_sessions (id) VALUES (?)
   `);
   stmt.run(sessionId);
   return sessionId;
+}
+
+export function getOrCreateSession(sessionId) {
+  const db = getDatabase();
+  let session = getSession(sessionId);
+  if (!session) {
+    createSession(sessionId);
+    session = getSession(sessionId);
+  }
+  return session;
 }
 
 export function getSession(sessionId) {
