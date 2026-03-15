@@ -75,49 +75,149 @@ export class Scraper {
   }
 
   /**
-   * 从专题页面获取试卷链接
+   * 查找试卷链接（统一入口）
+   * 策略：专题页优先 -> 标签页搜索备用
    */
   async findPaperFromZtPage(province, year) {
+    // 策略1: 从专题页获取
     const provinceCode = this.getProvinceCode(province);
     const ztUrl = `${this.baseUrl}/zt/sk/${provinceCode}/sl/`;
-    logger.debug('Fetching zt page', { url: ztUrl });
+    logger.debug('Trying zt page', { url: ztUrl });
 
-    const html = await fetchHtml(ztUrl);
+    try {
+      const html = await fetchHtml(ztUrl);
 
-    // 使用正则匹配文章链接和标题
-    const linkPattern = /href="([^"]*\/article\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>/g;
+      // 匹配文章链接和标题
+      const linkPattern = /href="([^"]*\/article\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>/g;
+      const matches = [];
+      let match;
+
+      while ((match = linkPattern.exec(html)) !== null) {
+        matches.push({ url: match[1], title: match[2] });
+      }
+
+      logger.debug('Zt page results', { count: matches.length });
+
+      const yearStr = String(year);
+      const provinceVariants = this.getProvinceVariants(province);
+
+      // 优先匹配：年份 + 省份 + 省市卷/通用卷
+      for (const item of matches) {
+        if (item.title.includes(yearStr) && item.title.includes('申论')) {
+          const hasProvince = provinceVariants.some(v => item.title.includes(v));
+          if (!hasProvince) continue;
+
+          if (item.title.includes('省市卷') || item.title.includes('通用卷')) {
+            logger.info('Found paper on zt page (priority)', { title: item.title, url: item.url });
+            return item.url;
+          }
+        }
+      }
+
+      // 回退匹配
+      for (const item of matches) {
+        if (item.title.includes(yearStr) && item.title.includes('申论')) {
+          const hasProvince = provinceVariants.some(v => item.title.includes(v));
+          if (!hasProvince) continue;
+
+          logger.info('Found paper on zt page (fallback)', { title: item.title, url: item.url });
+          return item.url;
+        }
+      }
+    } catch (error) {
+      logger.debug('Zt page not available', { url: ztUrl, error: error.message });
+    }
+
+    // 策略2: 从标签页搜索
+    logger.info('Trying tag page search', { province, year });
+    return await this.searchFromTagPage(province, year);
+  }
+
+  /**
+   * 从申论真题标签页搜索
+   */
+  async searchFromTagPage(province, year) {
+    const tagUrl = `${this.baseUrl}/tag/shenlunzhenti.html`;
+    logger.debug('Searching from tag page', { url: tagUrl, province, year });
+
+    const html = await fetchHtml(tagUrl);
+
+    // 匹配文章链接和标题（支持绝对路径和相对路径）
+    const linkPattern = /href="(https?:\/\/[^"]*\/article\/\d+\.html|[^"]*\/article\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>/g;
     const matches = [];
     let match;
 
     while ((match = linkPattern.exec(html)) !== null) {
       const url = match[1];
-      const title = match[2];
-      matches.push({ url, title });
+      const title = match[2].trim();
+      if (title && title.includes('申论')) {
+        matches.push({ url, title });
+      }
     }
 
-    logger.debug('Found articles on zt page', { count: matches.length });
+    logger.debug('Tag page results', { count: matches.length });
 
-    // 查找匹配年份的试卷
     const yearStr = String(year);
+    const provinceVariants = this.getProvinceVariants(province);
+
+    // 优先匹配：年份 + 省份 + 省市卷/通用卷
     for (const item of matches) {
-      if (item.title.includes(yearStr) && item.title.includes('申论')) {
-        // 优先选择"省市卷"或"通用卷"
+      if (item.title.includes(yearStr)) {
+        const hasProvince = provinceVariants.some(v => item.title.includes(v));
+        if (!hasProvince) continue;
+
         if (item.title.includes('省市卷') || item.title.includes('通用卷')) {
-          logger.info('Matched paper', { title: item.title, url: item.url });
+          logger.info('Found paper via tag page (priority)', { title: item.title, url: item.url });
           return item.url;
         }
       }
     }
 
-    // 如果没有找到省市卷/通用卷，返回第一个匹配的
+    // 回退匹配：年份 + 省份
     for (const item of matches) {
-      if (item.title.includes(yearStr) && item.title.includes('申论')) {
-        logger.info('Matched paper (fallback)', { title: item.title, url: item.url });
+      if (item.title.includes(yearStr)) {
+        const hasProvince = provinceVariants.some(v => item.title.includes(v));
+        if (!hasProvince) continue;
+
+        logger.info('Found paper via tag page (fallback)', { title: item.title, url: item.url });
         return item.url;
       }
     }
 
     return null;
+  }
+
+  /**
+   * 获取省份代码（专题页 URL 用）
+   */
+  getProvinceCode(province) {
+    const codes = {
+      北京: 'bj', 上海: 'sh', 天津: 'tj', 重庆: 'cq',
+      广东: 'gd', 江苏: 'js', 浙江: 'zj', 山东: 'sd',
+      河南: 'he', 四川: 'sc', 湖南: 'hn', 湖北: 'hu',
+      安徽: 'ah', 福建: 'fj', 江西: 'jx', 河北: 'hb',
+      山西: 'sx', 辽宁: 'ln', 吉林: 'jl', 黑龙江: 'hlj',
+      广西: 'gx', 海南: 'han', 贵州: 'gz', 云南: 'yn',
+      陕西: 'sn', 甘肃: 'gs', 青海: 'qh',
+      内蒙古: 'nmg', 新疆: 'xj', 西藏: 'xz', 宁夏: 'nx',
+    };
+    return codes[province] || province.toLowerCase();
+  }
+
+  /**
+   * 获取省份名称变体（用于标题匹配）
+   */
+  getProvinceVariants(province) {
+    const variants = {
+      '内蒙古': ['内蒙古', '内蒙古公务员'],
+      '广西': ['广西', '广西公务员'],
+      '宁夏': ['宁夏', '宁夏公务员'],
+      '新疆': ['新疆', '新疆公务员'],
+      '西藏': ['西藏', '西藏公务员'],
+    };
+
+    // 默认返回省份名和"省考"形式
+    return variants[province] || [province, province + '省考', province + '公务员'];
   }
 
   /**
@@ -162,46 +262,6 @@ export class Scraper {
     }
 
     return null;
-  }
-
-  /**
-   * Get province code for URL building
-   */
-  getProvinceCode(province) {
-    const codes = {
-      北京: 'bj',
-      上海: 'sh',
-      天津: 'tj',
-      重庆: 'cq',
-      广东: 'gd',
-      江苏: 'js',
-      浙江: 'zj',
-      山东: 'sd',
-      河南: 'hn',
-      四川: 'sc',
-      湖南: 'hn',
-      湖北: 'hb',
-      安徽: 'ah',
-      福建: 'fj',
-      江西: 'jx',
-      河北: 'he',
-      山西: 'sx',
-      辽宁: 'ln',
-      吉林: 'jl',
-      黑龙江: 'hlj',
-      广西: 'gx',
-      海南: 'han',
-      贵州: 'gz',
-      云南: 'yn',
-      陕西: 'sn',
-      甘肃: 'gs',
-      青海: 'qh',
-      内蒙古: 'nmg',
-      新疆: 'xj',
-      西藏: 'xz',
-      宁夏: 'nx',
-    };
-    return codes[province] || province.toLowerCase();
   }
 }
 

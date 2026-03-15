@@ -506,38 +506,143 @@ var Scraper = class {
     }
   }
   /**
-   * 从专题页面获取试卷链接
+   * 查找试卷链接（统一入口）
+   * 策略：专题页优先 -> 标签页搜索备用
    */
   async findPaperFromZtPage(province, year) {
     const provinceCode = this.getProvinceCode(province);
     const ztUrl = `${this.baseUrl}/zt/sk/${provinceCode}/sl/`;
-    logger.debug("Fetching zt page", { url: ztUrl });
-    const html = await fetchHtml(ztUrl);
-    const linkPattern = /href="([^"]*\/article\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>/g;
+    logger.debug("Trying zt page", { url: ztUrl });
+    try {
+      const html = await fetchHtml(ztUrl);
+      const linkPattern = /href="([^"]*\/article\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>/g;
+      const matches = [];
+      let match;
+      while ((match = linkPattern.exec(html)) !== null) {
+        matches.push({ url: match[1], title: match[2] });
+      }
+      logger.debug("Zt page results", { count: matches.length });
+      const yearStr = String(year);
+      const provinceVariants = this.getProvinceVariants(province);
+      for (const item of matches) {
+        if (item.title.includes(yearStr) && item.title.includes("\u7533\u8BBA")) {
+          const hasProvince = provinceVariants.some((v) => item.title.includes(v));
+          if (!hasProvince)
+            continue;
+          if (item.title.includes("\u7701\u5E02\u5377") || item.title.includes("\u901A\u7528\u5377")) {
+            logger.info("Found paper on zt page (priority)", { title: item.title, url: item.url });
+            return item.url;
+          }
+        }
+      }
+      for (const item of matches) {
+        if (item.title.includes(yearStr) && item.title.includes("\u7533\u8BBA")) {
+          const hasProvince = provinceVariants.some((v) => item.title.includes(v));
+          if (!hasProvince)
+            continue;
+          logger.info("Found paper on zt page (fallback)", { title: item.title, url: item.url });
+          return item.url;
+        }
+      }
+    } catch (error) {
+      logger.debug("Zt page not available", { url: ztUrl, error: error.message });
+    }
+    logger.info("Trying tag page search", { province, year });
+    return await this.searchFromTagPage(province, year);
+  }
+  /**
+   * 从申论真题标签页搜索
+   */
+  async searchFromTagPage(province, year) {
+    const tagUrl = `${this.baseUrl}/tag/shenlunzhenti.html`;
+    logger.debug("Searching from tag page", { url: tagUrl, province, year });
+    const html = await fetchHtml(tagUrl);
+    const linkPattern = /href="(https?:\/\/[^"]*\/article\/\d+\.html|[^"]*\/article\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>/g;
     const matches = [];
     let match;
     while ((match = linkPattern.exec(html)) !== null) {
       const url = match[1];
-      const title = match[2];
-      matches.push({ url, title });
+      const title = match[2].trim();
+      if (title && title.includes("\u7533\u8BBA")) {
+        matches.push({ url, title });
+      }
     }
-    logger.debug("Found articles on zt page", { count: matches.length });
+    logger.debug("Tag page results", { count: matches.length });
     const yearStr = String(year);
+    const provinceVariants = this.getProvinceVariants(province);
     for (const item of matches) {
-      if (item.title.includes(yearStr) && item.title.includes("\u7533\u8BBA")) {
+      if (item.title.includes(yearStr)) {
+        const hasProvince = provinceVariants.some((v) => item.title.includes(v));
+        if (!hasProvince)
+          continue;
         if (item.title.includes("\u7701\u5E02\u5377") || item.title.includes("\u901A\u7528\u5377")) {
-          logger.info("Matched paper", { title: item.title, url: item.url });
+          logger.info("Found paper via tag page (priority)", { title: item.title, url: item.url });
           return item.url;
         }
       }
     }
     for (const item of matches) {
-      if (item.title.includes(yearStr) && item.title.includes("\u7533\u8BBA")) {
-        logger.info("Matched paper (fallback)", { title: item.title, url: item.url });
+      if (item.title.includes(yearStr)) {
+        const hasProvince = provinceVariants.some((v) => item.title.includes(v));
+        if (!hasProvince)
+          continue;
+        logger.info("Found paper via tag page (fallback)", { title: item.title, url: item.url });
         return item.url;
       }
     }
     return null;
+  }
+  /**
+   * 获取省份代码（专题页 URL 用）
+   */
+  getProvinceCode(province) {
+    const codes = {
+      \u5317\u4EAC: "bj",
+      \u4E0A\u6D77: "sh",
+      \u5929\u6D25: "tj",
+      \u91CD\u5E86: "cq",
+      \u5E7F\u4E1C: "gd",
+      \u6C5F\u82CF: "js",
+      \u6D59\u6C5F: "zj",
+      \u5C71\u4E1C: "sd",
+      \u6CB3\u5357: "he",
+      \u56DB\u5DDD: "sc",
+      \u6E56\u5357: "hn",
+      \u6E56\u5317: "hu",
+      \u5B89\u5FBD: "ah",
+      \u798F\u5EFA: "fj",
+      \u6C5F\u897F: "jx",
+      \u6CB3\u5317: "hb",
+      \u5C71\u897F: "sx",
+      \u8FBD\u5B81: "ln",
+      \u5409\u6797: "jl",
+      \u9ED1\u9F99\u6C5F: "hlj",
+      \u5E7F\u897F: "gx",
+      \u6D77\u5357: "han",
+      \u8D35\u5DDE: "gz",
+      \u4E91\u5357: "yn",
+      \u9655\u897F: "sn",
+      \u7518\u8083: "gs",
+      \u9752\u6D77: "qh",
+      \u5185\u8499\u53E4: "nmg",
+      \u65B0\u7586: "xj",
+      \u897F\u85CF: "xz",
+      \u5B81\u590F: "nx"
+    };
+    return codes[province] || province.toLowerCase();
+  }
+  /**
+   * 获取省份名称变体（用于标题匹配）
+   */
+  getProvinceVariants(province) {
+    const variants = {
+      "\u5185\u8499\u53E4": ["\u5185\u8499\u53E4", "\u5185\u8499\u53E4\u516C\u52A1\u5458"],
+      "\u5E7F\u897F": ["\u5E7F\u897F", "\u5E7F\u897F\u516C\u52A1\u5458"],
+      "\u5B81\u590F": ["\u5B81\u590F", "\u5B81\u590F\u516C\u52A1\u5458"],
+      "\u65B0\u7586": ["\u65B0\u7586", "\u65B0\u7586\u516C\u52A1\u5458"],
+      "\u897F\u85CF": ["\u897F\u85CF", "\u897F\u85CF\u516C\u52A1\u5458"]
+    };
+    return variants[province] || [province, province + "\u7701\u8003", province + "\u516C\u52A1\u5458"];
   }
   /**
    * Parse article content from HTML
@@ -571,45 +676,6 @@ var Scraper = class {
       }
     }
     return null;
-  }
-  /**
-   * Get province code for URL building
-   */
-  getProvinceCode(province) {
-    const codes = {
-      \u5317\u4EAC: "bj",
-      \u4E0A\u6D77: "sh",
-      \u5929\u6D25: "tj",
-      \u91CD\u5E86: "cq",
-      \u5E7F\u4E1C: "gd",
-      \u6C5F\u82CF: "js",
-      \u6D59\u6C5F: "zj",
-      \u5C71\u4E1C: "sd",
-      \u6CB3\u5357: "hn",
-      \u56DB\u5DDD: "sc",
-      \u6E56\u5357: "hn",
-      \u6E56\u5317: "hb",
-      \u5B89\u5FBD: "ah",
-      \u798F\u5EFA: "fj",
-      \u6C5F\u897F: "jx",
-      \u6CB3\u5317: "he",
-      \u5C71\u897F: "sx",
-      \u8FBD\u5B81: "ln",
-      \u5409\u6797: "jl",
-      \u9ED1\u9F99\u6C5F: "hlj",
-      \u5E7F\u897F: "gx",
-      \u6D77\u5357: "han",
-      \u8D35\u5DDE: "gz",
-      \u4E91\u5357: "yn",
-      \u9655\u897F: "sn",
-      \u7518\u8083: "gs",
-      \u9752\u6D77: "qh",
-      \u5185\u8499\u53E4: "nmg",
-      \u65B0\u7586: "xj",
-      \u897F\u85CF: "xz",
-      \u5B81\u590F: "nx"
-    };
-    return codes[province] || province.toLowerCase();
   }
 };
 var scraperInstance = null;
