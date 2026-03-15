@@ -707,7 +707,7 @@ function printCliHelp() {
   console.log(`
 申论教学助手 CLI
 
-用法: node src/index.js <command> [options]
+用法: node scripts/shenlun.js <command> [options]
 
 命令:
   interactive, i         交互模式 (默认)
@@ -723,16 +723,16 @@ function printCliHelp() {
   help, -h               显示帮助
 
 示例:
-  node src/index.js                        # 交互模式
-  node src/index.js question "广东第一题"  # 指定条件出题
-  node src/index.js question "随机"        # 随机出题
-  node src/index.js guide                  # 获取引导
-  node src/index.js hint                   # 获取提示
-  node src/index.js score "我的答案"       # 评分
-  node src/index.js stats                  # 查看统计
-  node src/index.js scrape 广东 2024      # 爬取试卷
-  node src/index.js process 广东 2024      # 处理试卷
-  node src/index.js list                   # 查看可用试卷
+  node scripts/shenlun.js                        # 交互模式
+  node scripts/shenlun.js question "广东第一题"  # 指定条件出题
+  node scripts/shenlun.js question "随机"        # 随机出题
+  node scripts/shenlun.js guide                  # 获取引导
+  node scripts/shenlun.js hint                   # 获取提示
+  node scripts/shenlun.js score "我的答案"       # 评分
+  node scripts/shenlun.js stats                  # 查看统计
+  node scripts/shenlun.js scrape 广东 2024      # 爬取试卷
+  node scripts/shenlun.js process 广东 2024      # 处理试卷
+  node scripts/shenlun.js list                   # 查看可用试卷
 `);
 }
 
@@ -948,7 +948,8 @@ async function main() {
 // Export for module usage
 export default ShenLunTeacherSkill;
 
-// Run CLI if executed directly
-if (process.argv[1]?.endsWith('index.js')) {
+// Run CLI if executed directly (支持 index.js 和打包后的 shenlun.js)
+const entryFile = process.argv[1]?.split('/').pop()?.split('\\').pop();
+if (entryFile === 'index.js' || entryFile === 'shenlun.js') {
   main();
 }

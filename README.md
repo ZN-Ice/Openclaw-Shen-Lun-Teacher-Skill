@@ -25,15 +25,23 @@ cp .env.example .env
 # 编辑 .env 文件，填入你的 GLM API Key
 ```
 
-### 3. 运行
+### 3. 构建与运行
 
 ```bash
+# 构建打包（生成 scripts/shenlun.js）
+npm run build
+
 # 交互模式
 npm start
+# 或
+node scripts/shenlun.js
 
-# 或使用 CLI 命令
-node src/index.js question "广东第一题"  # 智能出题
-node src/index.js score "我的答案"        # 评分
+# 开发模式（直接运行源码）
+npm run dev
+
+# CLI 命令
+node scripts/shenlun.js question "广东第一题"  # 智能出题
+node scripts/shenlun.js score "我的答案"        # 评分
 ```
 
 ## CLI 命令
@@ -41,7 +49,7 @@ node src/index.js score "我的答案"        # 评分
 ### 基本命令
 
 ```bash
-node src/index.js <command> [options]
+node scripts/shenlun.js <command> [options]
 ```
 
 | 命令 | 简写 | 说明 |
@@ -63,19 +71,19 @@ node src/index.js <command> [options]
 
 ```bash
 # 随机出题
-node src/index.js question "随机"
-node src/index.js question "随便来一题"
+node scripts/shenlun.js question "随机"
+node scripts/shenlun.js question "随便来一题"
 
 # 指定省份
-node src/index.js question "广东第一题"
-node src/index.js question "给我一道江苏的题"
+node scripts/shenlun.js question "广东第一题"
+node scripts/shenlun.js question "给我一道江苏的题"
 
 # 指定年份
-node src/index.js question "2024年的题"
-node src/index.js question "广东2023年第二题"
+node scripts/shenlun.js question "2024年的题"
+node scripts/shenlun.js question "广东2023年第二题"
 
 # 组合条件
-node src/index.js question "随机给我一道2024年广东的第一题"
+node scripts/shenlun.js question "随机给我一道2024年广东的第一题"
 ```
 
 ### 使用示例
@@ -86,41 +94,43 @@ npm start
 
 # 智能出题
 npm run question -- "广东第一题"
-node src/index.js question "随机"
+node scripts/shenlun.js question "随机"
 
 # 获取引导
 npm run guide
-node src/index.js guide
+node scripts/shenlun.js guide
 
 # 获取提示
 npm run hint
-node src/index.js hint
+node scripts/shenlun.js hint
 
 # 评分答案
 npm run score -- "我认为应该从公共交通入手解决这个问题"
-node src/index.js score "我的答案是..."
+node scripts/shenlun.js score "我的答案是..."
 
 # 查看统计
 npm run stats
-node src/index.js stats
+node scripts/shenlun.js stats
 
 # 查看可用试卷
 npm run list
-node src/index.js list
+node scripts/shenlun.js list
 
 # 数据管理
 npm run scrape -- 广东 2024
-node src/index.js scrape 广东 2024
+node scripts/shenlun.js scrape 广东 2024
 
 npm run process -- 广东 2024
-node src/index.js process 广东 2024
+node scripts/shenlun.js process 广东 2024
 ```
 
 ### NPM Scripts
 
 | 命令 | 说明 |
 |------|------|
+| `npm run build` | 构建打包到 scripts/shenlun.js |
 | `npm start` | 启动交互模式 |
+| `npm run dev` | 开发模式（直接运行源码） |
 | `npm run question -- "条件"` | 智能出题 |
 | `npm run guide` | 获取引导 |
 | `npm run hint` | 获取提示 |
@@ -138,6 +148,8 @@ Openclaw-Shen-Lun-Teacher-Skill/
 ├── README.md                   # 本文件
 ├── package.json
 ├── .env.example
+├── scripts/
+│   └── shenlun.js             # 打包后的可执行脚本
 ├── src/
 │   ├── index.js               # 主入口 (CLI + 交互 + API)
 │   ├── config.js              # 配置加载

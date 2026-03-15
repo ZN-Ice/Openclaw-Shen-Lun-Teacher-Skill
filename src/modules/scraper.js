@@ -27,13 +27,19 @@ export class Scraper {
       return { existing: true, paperId: existing.id };
     }
 
-    // Build URL (this is a placeholder - actual URL structure may vary)
-    const url = this.buildPaperUrl(province, year);
-    logger.debug('Fetching URL', { url });
-
     try {
-      const html = await fetchHtml(url);
-      const content = this.parsePaperContent(html);
+      // 通过专题页找到试卷链接
+      const articleUrl = await this.findPaperFromZtPage(province, year);
+
+      if (!articleUrl) {
+        throw new Error(`未找到 ${province} ${year} 年的试卷`);
+      }
+
+      logger.info('Found paper URL', { url: articleUrl });
+
+      // 获取试卷内容
+      const html = await fetchHtml(articleUrl);
+      const content = this.parseArticleContent(html);
 
       if (!content) {
         throw new Error('Failed to parse paper content');
@@ -53,7 +59,7 @@ export class Scraper {
       // Save to database
       const paperId = createPaper({
         source: 'aipta',
-        sourceUrl: url,
+        sourceUrl: articleUrl,
         province,
         year,
         rawContent: content,
@@ -69,70 +75,131 @@ export class Scraper {
   }
 
   /**
-   * Build URL for exam paper (placeholder - adjust based on actual site structure)
+   * 从专题页面获取试卷链接
    */
-  buildPaperUrl(province, year) {
-    // This is a placeholder - actual URL structure needs to be determined
-    // based on the real website
+  async findPaperFromZtPage(province, year) {
     const provinceCode = this.getProvinceCode(province);
-    return `${this.baseUrl}/shenlun/${provinceCode}/${year}.html`;
-  }
+    const ztUrl = `${this.baseUrl}/zt/sk/${provinceCode}/sl/`;
+    logger.debug('Fetching zt page', { url: ztUrl });
 
-  /**
-   * Parse paper content from HTML
-   */
-  parsePaperContent(html) {
-    const dom = new JSDOM(html);
-    const doc = dom.window.document;
+    const html = await fetchHtml(ztUrl);
 
-    // Try common content selectors
-    const selectors = [
-      '.content',
-      '.article-content',
-      '.paper-content',
-      'article',
-      '.main-content',
-    ];
+    // 使用正则匹配文章链接和标题
+    const linkPattern = /href="([^"]*\/article\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>/g;
+    const matches = [];
+    let match;
 
-    for (const selector of selectors) {
-      const element = doc.querySelector(selector);
-      if (element) {
-        // Clean up the content
-        const content = element.textContent
-          .replace(/\s+/g, ' ')
-          .replace(/\n\s*\n/g, '\n\n')
-          .trim();
+    while ((match = linkPattern.exec(html)) !== null) {
+      const url = match[1];
+      const title = match[2];
+      matches.push({ url, title });
+    }
 
-        if (content.length > 100) {
-          return content;
+    logger.debug('Found articles on zt page', { count: matches.length });
+
+    // 查找匹配年份的试卷
+    const yearStr = String(year);
+    for (const item of matches) {
+      if (item.title.includes(yearStr) && item.title.includes('申论')) {
+        // 优先选择"省市卷"或"通用卷"
+        if (item.title.includes('省市卷') || item.title.includes('通用卷')) {
+          logger.info('Matched paper', { title: item.title, url: item.url });
+          return item.url;
         }
       }
     }
 
-    // Fallback: get all text
-    const body = doc.body;
-    if (body) {
-      return body.textContent.replace(/\s+/g, ' ').trim();
+    // 如果没有找到省市卷/通用卷，返回第一个匹配的
+    for (const item of matches) {
+      if (item.title.includes(yearStr) && item.title.includes('申论')) {
+        logger.info('Matched paper (fallback)', { title: item.title, url: item.url });
+        return item.url;
+      }
     }
 
     return null;
   }
 
   /**
-   * Get province code (placeholder mapping)
+   * Parse article content from HTML
+   */
+  parseArticleContent(html) {
+    const dom = new JSDOM(html);
+    const doc = dom.window.document;
+
+    // 尝试获取文章主体内容
+    const selectors = [
+      '.article-content',
+      '.content',
+      '.paper-content',
+      'article',
+      '.main-content',
+      '.post-content',
+      '#content',
+    ];
+
+    for (const selector of selectors) {
+      const element = doc.querySelector(selector);
+      if (element) {
+        const text = element.textContent
+          .replace(/\s+/g, ' ')
+          .replace(/\n\s*\n/g, '\n\n')
+          .trim();
+
+        if (text.length > 500) {
+          return text;
+        }
+      }
+    }
+
+    // Fallback: get body text
+    const body = doc.body;
+    if (body) {
+      const text = body.textContent.replace(/\s+/g, ' ').trim();
+      if (text.length > 100) {
+        return text;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get province code for URL building
    */
   getProvinceCode(province) {
     const codes = {
-      北京: 'beijing',
-      上海: 'shanghai',
-      天津: 'tianjin',
-      重庆: 'chongqing',
-      广东: 'guangdong',
-      江苏: 'jiangsu',
-      浙江: 'zhejiang',
-      山东: 'shandong',
-      河南: 'henan',
-      四川: 'sichuan',
+      北京: 'bj',
+      上海: 'sh',
+      天津: 'tj',
+      重庆: 'cq',
+      广东: 'gd',
+      江苏: 'js',
+      浙江: 'zj',
+      山东: 'sd',
+      河南: 'hn',
+      四川: 'sc',
+      湖南: 'hn',
+      湖北: 'hb',
+      安徽: 'ah',
+      福建: 'fj',
+      江西: 'jx',
+      河北: 'he',
+      山西: 'sx',
+      辽宁: 'ln',
+      吉林: 'jl',
+      黑龙江: 'hlj',
+      广西: 'gx',
+      海南: 'han',
+      贵州: 'gz',
+      云南: 'yn',
+      陕西: 'sn',
+      甘肃: 'gs',
+      青海: 'qh',
+      内蒙古: 'nmg',
+      新疆: 'xj',
+      西藏: 'xz',
+      宁夏: 'nx',
     };
     return codes[province] || province.toLowerCase();
   }

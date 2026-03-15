@@ -118,26 +118,26 @@ LLM_MODEL=glm-4-flash
 
 ```bash
 # 交互模式
-npm start
+node scripts/shenlun.js
 
 # 智能出题
-node src/index.js question "广东第一题"
-node src/index.js question "随机"
+node scripts/shenlun.js question "广东第一题"
+node scripts/shenlun.js question "随机"
 
 # 获取引导/提示
-node src/index.js guide
-node src/index.js hint
+node scripts/shenlun.js guide
+node scripts/shenlun.js hint
 
 # 评分
-node src/index.js score "我的答案"
+node scripts/shenlun.js score "我的答案"
 
 # 统计/列表
-node src/index.js stats
-node src/index.js list
+node scripts/shenlun.js stats
+node scripts/shenlun.js list
 
 # 爬取/处理试卷
-node src/index.js scrape 广东 2024
-node src/index.js process 广东 2024
+node scripts/shenlun.js scrape 广东 2024
+node scripts/shenlun.js process 广东 2024
 ```
 
 ## 数据库结构

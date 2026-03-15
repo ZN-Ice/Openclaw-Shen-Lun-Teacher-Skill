@@ -5,15 +5,17 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "question": "node src/index.js question",
-    "guide": "node src/index.js guide",
-    "hint": "node src/index.js hint",
-    "score": "node src/index.js score",
-    "stats": "node src/index.js stats",
-    "list": "node src/index.js list",
-    "scrape": "node src/index.js scrape",
-    "process": "node src/index.js process",
+    "build": "esbuild src/index.js --bundle --platform=node --target=node18 --format=esm --outfile=scripts/shenlun.js --external:better-sqlite3 --external:dotenv --external:jsdom --banner:js=\"#!/usr/bin/env node\"",
+    "start": "node scripts/shenlun.js",
+    "question": "node scripts/shenlun.js question",
+    "guide": "node scripts/shenlun.js guide",
+    "hint": "node scripts/shenlun.js hint",
+    "score": "node scripts/shenlun.js score",
+    "stats": "node scripts/shenlun.js stats",
+    "list": "node scripts/shenlun.js list",
+    "scrape": "node scripts/shenlun.js scrape",
+    "process": "node scripts/shenlun.js process",
+    "dev": "node src/index.js",
     "test": "node --test src/**/*.test.js"
   },
   "keywords": [
@@ -28,6 +30,9 @@
     "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.0",
     "jsdom": "^24.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.2"
   },
   "engines": {
     "node": ">=18.0.0"
