@@ -161,19 +161,15 @@ ${truncatedContent}
         continue;
       }
 
-      // 处理中文引号（在字符串内，替换为转义的英文引号）
-      if (char === '"' || char === '"') {
-        if (inString) {
-          result += '\\"';
-        } else {
-          result += char;
-        }
-        continue;
-      }
-
       if (char === '"') {
         inString = !inString;
         result += char;
+        continue;
+      }
+
+      // 在字符串内处理中文引号
+      if (inString && (char === '"' || char === '"')) {
+        result += "'";  // 替换为单引号
         continue;
       }
 
@@ -193,6 +189,25 @@ ${truncatedContent}
       } else {
         result += char;
       }
+    }
+
+    // 尝试修复不完整的 JSON
+    let openBraces = 0;
+    let openBrackets = 0;
+    for (const c of result) {
+      if (c === '{') openBraces++;
+      if (c === '}') openBraces--;
+      if (c === '[') openBrackets++;
+      if (c === ']') openBrackets--;
+    }
+
+    while (openBrackets > 0) {
+      result += ']';
+      openBrackets--;
+    }
+    while (openBraces > 0) {
+      result += '}';
+      openBraces--;
     }
 
     return result;

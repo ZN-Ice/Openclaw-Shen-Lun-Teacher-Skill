@@ -662,7 +662,7 @@ var Scraper = class {
     for (const selector of selectors) {
       const element = doc.querySelector(selector);
       if (element) {
-        const text = element.textContent.replace(/\s+/g, " ").replace(/\n\s*\n/g, "\n\n").trim();
+        const text = element.textContent.replace(/[ \t]+/g, " ").replace(/\n[ \t]+/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
         if (text.length > 500) {
           return text;
         }
@@ -670,7 +670,7 @@ var Scraper = class {
     }
     const body = doc.body;
     if (body) {
-      const text = body.textContent.replace(/\s+/g, " ").trim();
+      const text = body.textContent.replace(/[ \t]+/g, " ").replace(/\n[ \t]+/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
       if (text.length > 100) {
         return text;
       }
@@ -818,17 +818,13 @@ ${truncatedContent}
         escape = true;
         continue;
       }
-      if (char === '"' || char === '"') {
-        if (inString) {
-          result += '\\"';
-        } else {
-          result += char;
-        }
-        continue;
-      }
       if (char === '"') {
         inString = !inString;
         result += char;
+        continue;
+      }
+      if (inString && (char === '"' || char === '"')) {
+        result += "'";
         continue;
       }
       if (inString) {
@@ -844,6 +840,26 @@ ${truncatedContent}
       } else {
         result += char;
       }
+    }
+    let openBraces = 0;
+    let openBrackets = 0;
+    for (const c of result) {
+      if (c === "{")
+        openBraces++;
+      if (c === "}")
+        openBraces--;
+      if (c === "[")
+        openBrackets++;
+      if (c === "]")
+        openBrackets--;
+    }
+    while (openBrackets > 0) {
+      result += "]";
+      openBrackets--;
+    }
+    while (openBraces > 0) {
+      result += "}";
+      openBraces--;
     }
     return result;
   }

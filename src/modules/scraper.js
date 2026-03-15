@@ -241,9 +241,12 @@ export class Scraper {
     for (const selector of selectors) {
       const element = doc.querySelector(selector);
       if (element) {
+        // 保留换行符，只压缩连续空格
         const text = element.textContent
-          .replace(/\s+/g, ' ')
-          .replace(/\n\s*\n/g, '\n\n')
+          .replace(/[ \t]+/g, ' ')           // 压缩连续空格和制表符
+          .replace(/\n[ \t]+/g, '\n')        // 移除行首空格
+          .replace(/[ \t]+\n/g, '\n')        // 移除行尾空格
+          .replace(/\n{3,}/g, '\n\n')        // 多个换行压缩为两个
           .trim();
 
         if (text.length > 500) {
@@ -255,7 +258,12 @@ export class Scraper {
     // Fallback: get body text
     const body = doc.body;
     if (body) {
-      const text = body.textContent.replace(/\s+/g, ' ').trim();
+      const text = body.textContent
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n[ \t]+/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
       if (text.length > 100) {
         return text;
       }
