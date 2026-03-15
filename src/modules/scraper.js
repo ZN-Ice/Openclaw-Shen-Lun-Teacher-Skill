@@ -241,14 +241,8 @@ export class Scraper {
     for (const selector of selectors) {
       const element = doc.querySelector(selector);
       if (element) {
-        // 保留换行符，只压缩连续空格
-        const text = element.textContent
-          .replace(/[ \t]+/g, ' ')           // 压缩连续空格和制表符
-          .replace(/\n[ \t]+/g, '\n')        // 移除行首空格
-          .replace(/[ \t]+\n/g, '\n')        // 移除行尾空格
-          .replace(/\n{3,}/g, '\n\n')        // 多个换行压缩为两个
-          .trim();
-
+        // 使用递归方式提取文本，保留块级元素的换行
+        const text = this.extractTextWithStructure(element);
         if (text.length > 500) {
           return text;
         }
@@ -258,18 +252,65 @@ export class Scraper {
     // Fallback: get body text
     const body = doc.body;
     if (body) {
-      const text = body.textContent
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n[ \t]+/g, '\n')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
+      const text = this.extractTextWithStructure(body);
       if (text.length > 100) {
         return text;
       }
     }
 
     return null;
+  }
+
+  /**
+   * 递归提取文本，保留块级元素的结构
+   */
+  extractTextWithStructure(element) {
+    const blockElements = ['P', 'DIV', 'BR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+      'LI', 'TR', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE'];
+
+    let result = '';
+
+    const processNode = (node) => {
+      if (node.nodeType === 3) { // Text node
+        const text = node.textContent
+          .replace(/[ \t]+/g, ' ')  // 压缩空格
+          .trim();
+        if (text) {
+          result += text;
+        }
+      } else if (node.nodeType === 1) { // Element node
+        const tagName = node.tagName.toUpperCase();
+
+        // 块级元素前添加换行
+        if (blockElements.includes(tagName)) {
+          if (result && !result.endsWith('\n')) {
+            result += '\n';
+          }
+        }
+
+        // 处理子节点
+        for (const child of node.childNodes) {
+          processNode(child);
+        }
+
+        // 块级元素后添加换行
+        if (blockElements.includes(tagName)) {
+          if (result && !result.endsWith('\n')) {
+            result += '\n';
+          }
+        }
+      }
+    };
+
+    for (const child of element.childNodes) {
+      processNode(child);
+    }
+
+    // 清理多余换行
+    return result
+      .replace(/\n{3,}/g, '\n\n')  // 多个换行压缩为两个
+      .replace(/[ \t]+\n/g, '\n')  // 移除行尾空格
+      .trim();
   }
 }
 

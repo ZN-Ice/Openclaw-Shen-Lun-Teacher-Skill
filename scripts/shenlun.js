@@ -662,7 +662,7 @@ var Scraper = class {
     for (const selector of selectors) {
       const element = doc.querySelector(selector);
       if (element) {
-        const text = element.textContent.replace(/[ \t]+/g, " ").replace(/\n[ \t]+/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+        const text = this.extractTextWithStructure(element);
         if (text.length > 500) {
           return text;
         }
@@ -670,12 +670,64 @@ var Scraper = class {
     }
     const body = doc.body;
     if (body) {
-      const text = body.textContent.replace(/[ \t]+/g, " ").replace(/\n[ \t]+/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      const text = this.extractTextWithStructure(body);
       if (text.length > 100) {
         return text;
       }
     }
     return null;
+  }
+  /**
+   * 递归提取文本，保留块级元素的结构
+   */
+  extractTextWithStructure(element) {
+    const blockElements = [
+      "P",
+      "DIV",
+      "BR",
+      "H1",
+      "H2",
+      "H3",
+      "H4",
+      "H5",
+      "H6",
+      "LI",
+      "TR",
+      "SECTION",
+      "ARTICLE",
+      "HEADER",
+      "FOOTER",
+      "MAIN",
+      "ASIDE"
+    ];
+    let result = "";
+    const processNode = (node) => {
+      if (node.nodeType === 3) {
+        const text = node.textContent.replace(/[ \t]+/g, " ").trim();
+        if (text) {
+          result += text;
+        }
+      } else if (node.nodeType === 1) {
+        const tagName = node.tagName.toUpperCase();
+        if (blockElements.includes(tagName)) {
+          if (result && !result.endsWith("\n")) {
+            result += "\n";
+          }
+        }
+        for (const child of node.childNodes) {
+          processNode(child);
+        }
+        if (blockElements.includes(tagName)) {
+          if (result && !result.endsWith("\n")) {
+            result += "\n";
+          }
+        }
+      }
+    };
+    for (const child of element.childNodes) {
+      processNode(child);
+    }
+    return result.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+\n/g, "\n").trim();
   }
 };
 var scraperInstance = null;
