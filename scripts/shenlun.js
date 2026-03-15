@@ -723,7 +723,8 @@ var LLMClient = class {
       throw new Error(`LLM API error: ${response.status} - ${error}`);
     }
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
+    const message = data.choices?.[0]?.message || {};
+    const content = message.content || message.reasoning_content || "";
     logger.debug("LLM response", { contentLength: content.length });
     return content;
   }
@@ -731,42 +732,120 @@ var LLMClient = class {
    * Split exam content into questions and materials
    */
   async splitContent(rawContent) {
-    const prompt = `\u4F60\u662F\u4E00\u4E2A\u7533\u8BBA\u8BD5\u5377\u89E3\u6790\u4E13\u5BB6\u3002\u8BF7\u5C06\u4EE5\u4E0B\u7533\u8BBA\u8BD5\u5377\u5185\u5BB9\u62C6\u5206\u4E3A\u9898\u76EE\u548C\u6750\u6599\u3002
-
-\u8981\u6C42\uFF1A
-1. \u8BC6\u522B\u6240\u6709\u9898\u76EE\uFF08\u5305\u62EC\u9898\u76EE\u7F16\u53F7\u3001\u9898\u76EE\u8981\u6C42\u3001\u5206\u503C\uFF09
-2. \u8BC6\u522B\u6240\u6709\u6750\u6599\uFF08\u5305\u62EC\u6750\u6599\u7F16\u53F7\u3001\u6750\u6599\u5185\u5BB9\uFF09
-3. \u8F93\u51FAJSON\u683C\u5F0F
-
-\u8F93\u51FA\u683C\u5F0F\u793A\u4F8B\uFF1A
-{
-  "questions": [
-    {
-      "number": 1,
-      "text": "\u9898\u76EE\u5185\u5BB9",
-      "requirements": "\u4F5C\u7B54\u8981\u6C42",
-      "score": 20
-    }
-  ],
-  "materials": [
-    {
-      "number": 1,
-      "content": "\u6750\u6599\u5185\u5BB9"
-    }
-  ]
-}
+    const maxLength = 1e4;
+    const truncatedContent = rawContent.length > maxLength ? rawContent.substring(0, maxLength) + "\n[\u5185\u5BB9\u5DF2\u622A\u65AD]" : rawContent;
+    const prompt = `\u5206\u6790\u4EE5\u4E0B\u7533\u8BBA\u8BD5\u5377\uFF0C\u63D0\u53D6\u6240\u6709\u9898\u76EE\u548C\u6750\u6599\u3002
 
 \u8BD5\u5377\u5185\u5BB9\uFF1A
-${rawContent}`;
+${truncatedContent}
+
+\u8BF7\u4E25\u683C\u6309\u7167\u4EE5\u4E0BJSON\u683C\u5F0F\u8F93\u51FA\uFF0C\u4E0D\u8981\u8F93\u51FA\u4EFB\u4F55\u5176\u4ED6\u5185\u5BB9\uFF1A
+
+\`\`\`json
+{
+  "questions": [
+    {"number": 1, "text": "\u9898\u76EE\u5B8C\u6574\u5185\u5BB9", "requirements": "\u4F5C\u7B54\u8981\u6C42", "score": 20}
+  ],
+  "materials": [
+    {"number": 1, "content": "\u6750\u6599\u5B8C\u6574\u5185\u5BB9"}
+  ]
+}
+\`\`\`
+
+\u6CE8\u610F\uFF1A
+1. \u53EA\u8F93\u51FAJSON\u4EE3\u7801\u5757\uFF0C\u4E0D\u8981\u6709\u4EFB\u4F55\u89E3\u91CA
+2. \u4FDD\u6301\u5185\u5BB9\u5B8C\u6574\uFF0C\u4E0D\u8981\u7528\u7701\u7565\u53F7
+3. \u4F7F\u7528\u82F1\u6587\u5F15\u53F7\u548C\u6807\u70B9`;
     const response = await this.chat([
-      { role: "system", content: "\u4F60\u662F\u4E00\u4E2A\u4E13\u4E1A\u7684\u7533\u8BBA\u8BD5\u5377\u89E3\u6790\u52A9\u624B\uFF0C\u64C5\u957F\u7ED3\u6784\u5316\u63D0\u53D6\u8BD5\u5377\u5185\u5BB9\u3002" },
+      { role: "system", content: "\u4F60\u662F\u4E00\u4E2AJSON\u6570\u636E\u63D0\u53D6\u5DE5\u5177\uFF0C\u53EA\u8F93\u51FAJSON\u4EE3\u7801\u5757\u3002" },
       { role: "user", content: prompt }
-    ]);
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("Failed to parse LLM response as JSON");
+    ], { temperature: 0.1, maxTokens: 8192 });
+    logger.debug("LLM split response", { responseLength: response.length, preview: response.substring(0, 200) });
+    let jsonStr = null;
+    const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1].trim();
+    } else {
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
     }
-    return JSON.parse(jsonMatch[0]);
+    if (!jsonStr) {
+      logger.error("No JSON found in response", { response: response.substring(0, 1e3) });
+      throw new Error("Failed to parse LLM response as JSON: no JSON object found");
+    }
+    jsonStr = jsonStr.replace(/\.\.\./g, "\u7B49");
+    try {
+      const result = JSON.parse(jsonStr);
+      logger.info("Content split successful", {
+        questionCount: result.questions?.length || 0,
+        materialCount: result.materials?.length || 0
+      });
+      return result;
+    } catch (parseError) {
+      logger.error("JSON parse failed, trying fix", { error: parseError.message });
+      const fixedJson = this.tryFixJson(jsonStr);
+      try {
+        const result = JSON.parse(fixedJson);
+        logger.info("Content split successful (after fix)", {
+          questionCount: result.questions?.length || 0,
+          materialCount: result.materials?.length || 0
+        });
+        return result;
+      } catch (e) {
+        logger.error("JSON fix failed", { error: e.message });
+        throw new Error(`Failed to parse LLM response as JSON: ${parseError.message}`);
+      }
+    }
+  }
+  /**
+   * 尝试修复 JSON 字符串中的常见错误
+   */
+  tryFixJson(jsonStr) {
+    let result = "";
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+      if (escape) {
+        result += char;
+        escape = false;
+        continue;
+      }
+      if (char === "\\") {
+        result += char;
+        escape = true;
+        continue;
+      }
+      if (char === '"' || char === '"') {
+        if (inString) {
+          result += '\\"';
+        } else {
+          result += char;
+        }
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        result += char;
+        continue;
+      }
+      if (inString) {
+        if (char === "\n") {
+          result += "\\n";
+        } else if (char === "\r") {
+        } else if (char === "	") {
+          result += "\\t";
+        } else if (char.charCodeAt(0) < 32) {
+        } else {
+          result += char;
+        }
+      } else {
+        result += char;
+      }
+    }
+    return result;
   }
   /**
    * Verify split results

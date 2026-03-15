@@ -42,7 +42,9 @@ export class LLMClient {
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
+    const message = data.choices?.[0]?.message || {};
+    // GLM-4.7 思考模式：内容可能在 content 或 reasoning_content 中
+    const content = message.content || message.reasoning_content || '';
 
     logger.debug('LLM response', { contentLength: content.length });
 
@@ -53,46 +55,147 @@ export class LLMClient {
    * Split exam content into questions and materials
    */
   async splitContent(rawContent) {
-    const prompt = `你是一个申论试卷解析专家。请将以下申论试卷内容拆分为题目和材料。
+    // 限制内容长度
+    const maxLength = 10000;
+    const truncatedContent = rawContent.length > maxLength
+      ? rawContent.substring(0, maxLength) + '\n[内容已截断]'
+      : rawContent;
 
-要求：
-1. 识别所有题目（包括题目编号、题目要求、分值）
-2. 识别所有材料（包括材料编号、材料内容）
-3. 输出JSON格式
-
-输出格式示例：
-{
-  "questions": [
-    {
-      "number": 1,
-      "text": "题目内容",
-      "requirements": "作答要求",
-      "score": 20
-    }
-  ],
-  "materials": [
-    {
-      "number": 1,
-      "content": "材料内容"
-    }
-  ]
-}
+    const prompt = `分析以下申论试卷，提取所有题目和材料。
 
 试卷内容：
-${rawContent}`;
+${truncatedContent}
+
+请严格按照以下JSON格式输出，不要输出任何其他内容：
+
+\`\`\`json
+{
+  "questions": [
+    {"number": 1, "text": "题目完整内容", "requirements": "作答要求", "score": 20}
+  ],
+  "materials": [
+    {"number": 1, "content": "材料完整内容"}
+  ]
+}
+\`\`\`
+
+注意：
+1. 只输出JSON代码块，不要有任何解释
+2. 保持内容完整，不要用省略号
+3. 使用英文引号和标点`;
 
     const response = await this.chat([
-      { role: 'system', content: '你是一个专业的申论试卷解析助手，擅长结构化提取试卷内容。' },
+      { role: 'system', content: '你是一个JSON数据提取工具，只输出JSON代码块。' },
       { role: 'user', content: prompt },
-    ]);
+    ], { temperature: 0.1, maxTokens: 8192 });
 
-    // Extract JSON from response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Failed to parse LLM response as JSON');
+    logger.debug('LLM split response', { responseLength: response.length, preview: response.substring(0, 200) });
+
+    // 尝试从代码块中提取 JSON
+    let jsonStr = null;
+    const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1].trim();
+    } else {
+      // 回退：直接匹配 JSON 对象
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
     }
 
-    return JSON.parse(jsonMatch[0]);
+    if (!jsonStr) {
+      logger.error('No JSON found in response', { response: response.substring(0, 1000) });
+      throw new Error('Failed to parse LLM response as JSON: no JSON object found');
+    }
+
+    // 清理 JSON 字符串
+    jsonStr = jsonStr.replace(/\.\.\./g, '等');
+
+    try {
+      const result = JSON.parse(jsonStr);
+      logger.info('Content split successful', {
+        questionCount: result.questions?.length || 0,
+        materialCount: result.materials?.length || 0
+      });
+      return result;
+    } catch (parseError) {
+      logger.error('JSON parse failed, trying fix', { error: parseError.message });
+
+      // 尝试修复 JSON
+      const fixedJson = this.tryFixJson(jsonStr);
+      try {
+        const result = JSON.parse(fixedJson);
+        logger.info('Content split successful (after fix)', {
+          questionCount: result.questions?.length || 0,
+          materialCount: result.materials?.length || 0
+        });
+        return result;
+      } catch (e) {
+        logger.error('JSON fix failed', { error: e.message });
+        throw new Error(`Failed to parse LLM response as JSON: ${parseError.message}`);
+      }
+    }
+  }
+
+  /**
+   * 尝试修复 JSON 字符串中的常见错误
+   */
+  tryFixJson(jsonStr) {
+    let result = '';
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+
+      if (escape) {
+        result += char;
+        escape = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        result += char;
+        escape = true;
+        continue;
+      }
+
+      // 处理中文引号（在字符串内，替换为转义的英文引号）
+      if (char === '"' || char === '"') {
+        if (inString) {
+          result += '\\"';
+        } else {
+          result += char;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        result += char;
+        continue;
+      }
+
+      if (inString) {
+        // 在字符串内，转义特殊字符
+        if (char === '\n') {
+          result += '\\n';
+        } else if (char === '\r') {
+          // 跳过回车
+        } else if (char === '\t') {
+          result += '\\t';
+        } else if (char.charCodeAt(0) < 32) {
+          // 其他控制字符，跳过
+        } else {
+          result += char;
+        }
+      } else {
+        result += char;
+      }
+    }
+
+    return result;
   }
 
   /**

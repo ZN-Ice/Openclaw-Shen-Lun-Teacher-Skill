@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "mcp__web-reader__webReader",
+      "WebSearch",
+      "Bash(npm run:*)",
+      "Bash(sqlite3:*)",
+      "mcp__web-search-prime__web_search_prime",
+      "Bash(curl:*)",
+      "Bash(git:*)"
+    ]
+  }
+}
