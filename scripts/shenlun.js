@@ -784,34 +784,39 @@ var LLMClient = class {
    * Split exam content into questions and materials
    */
   async splitContent(rawContent) {
-    const maxLength = 1e4;
+    const maxLength = 15e3;
     const truncatedContent = rawContent.length > maxLength ? rawContent.substring(0, maxLength) + "\n[\u5185\u5BB9\u5DF2\u622A\u65AD]" : rawContent;
-    const prompt = `\u5206\u6790\u4EE5\u4E0B\u7533\u8BBA\u8BD5\u5377\uFF0C\u63D0\u53D6\u6240\u6709\u9898\u76EE\u548C\u6750\u6599\u3002
+    const prompt = `\u4F60\u662F\u4E00\u4E2A\u7533\u8BBA\u8BD5\u5377\u89E3\u6790\u4E13\u5BB6\u3002\u8BF7\u5206\u6790\u4EE5\u4E0B\u8BD5\u5377\u5185\u5BB9\uFF0C\u63D0\u53D6\u6240\u6709\u9898\u76EE\u548C\u6750\u6599\u3002
 
-\u8BD5\u5377\u5185\u5BB9\uFF1A
+\u3010\u91CD\u8981\u89C4\u5219\u3011
+1. \u4ED4\u7EC6\u8BC6\u522B\u6BCF\u4E2A"\u6750\u6599X"\u6807\u8BB0\uFF08\u5982"\u6750\u65991"\u3001"\u6750\u65992"\u7B49\uFF09\uFF0C\u6BCF\u4E2A\u6750\u6599\u5FC5\u987B\u5355\u72EC\u63D0\u53D6
+2. \u4ED4\u7EC6\u8BC6\u522B"\u4E09\u3001\u4F5C\u7B54\u8981\u6C42"\u90E8\u5206\uFF0C\u63D0\u53D6\u6240\u6709\u9898\u76EE
+3. \u4FDD\u6301\u5185\u5BB9\u5B8C\u6574\uFF0C\u4E0D\u8981\u5408\u5E76\u6216\u7701\u7565
+4. \u6750\u6599\u7F16\u53F7\u5FC5\u987B\u8FDE\u7EED\u4E14\u72EC\u7ACB
+
+\u3010\u8BD5\u5377\u5185\u5BB9\u3011
 ${truncatedContent}
 
-\u8BF7\u4E25\u683C\u6309\u7167\u4EE5\u4E0BJSON\u683C\u5F0F\u8F93\u51FA\uFF0C\u4E0D\u8981\u8F93\u51FA\u4EFB\u4F55\u5176\u4ED6\u5185\u5BB9\uFF1A
+\u3010\u8F93\u51FA\u683C\u5F0F\u3011
+\u4E25\u683C\u6309\u7167\u4EE5\u4E0BJSON\u683C\u5F0F\u8F93\u51FA\uFF0C\u4E0D\u8981\u6709\u4EFB\u4F55\u5176\u4ED6\u6587\u5B57\uFF1A
 
 \`\`\`json
 {
   "questions": [
-    {"number": 1, "text": "\u9898\u76EE\u5B8C\u6574\u5185\u5BB9", "requirements": "\u4F5C\u7B54\u8981\u6C42", "score": 20}
+    {"number": 1, "text": "\u9898\u76EE\u5B8C\u6574\u6587\u672C", "requirements": "\u4F5C\u7B54\u8981\u6C42", "score": 20}
   ],
   "materials": [
-    {"number": 1, "content": "\u6750\u6599\u5B8C\u6574\u5185\u5BB9"}
+    {"number": 1, "content": "\u6750\u65991\u7684\u5B8C\u6574\u5185\u5BB9"},
+    {"number": 2, "content": "\u6750\u65992\u7684\u5B8C\u6574\u5185\u5BB9"}
   ]
 }
 \`\`\`
 
-\u6CE8\u610F\uFF1A
-1. \u53EA\u8F93\u51FAJSON\u4EE3\u7801\u5757\uFF0C\u4E0D\u8981\u6709\u4EFB\u4F55\u89E3\u91CA
-2. \u4FDD\u6301\u5185\u5BB9\u5B8C\u6574\uFF0C\u4E0D\u8981\u7528\u7701\u7565\u53F7
-3. \u4F7F\u7528\u82F1\u6587\u5F15\u53F7\u548C\u6807\u70B9`;
+\u8BF7\u5F00\u59CB\u89E3\u6790\uFF1A`;
     const response = await this.chat([
-      { role: "system", content: "\u4F60\u662F\u4E00\u4E2AJSON\u6570\u636E\u63D0\u53D6\u5DE5\u5177\uFF0C\u53EA\u8F93\u51FAJSON\u4EE3\u7801\u5757\u3002" },
+      { role: "system", content: "\u4F60\u662F\u7533\u8BBA\u8BD5\u5377\u89E3\u6790\u4E13\u5BB6\u3002\u4E25\u683C\u6309JSON\u683C\u5F0F\u8F93\u51FA\uFF0C\u6BCF\u4E2A\u6750\u6599\u72EC\u7ACB\u63D0\u53D6\u3002" },
       { role: "user", content: prompt }
-    ], { temperature: 0.1, maxTokens: 8192 });
+    ], { temperature: 0.1, maxTokens: 16384 });
     logger.debug("LLM split response", { responseLength: response.length, preview: response.substring(0, 200) });
     let jsonStr = null;
     const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -919,16 +924,20 @@ ${truncatedContent}
    * Verify split results
    */
   async verifySplit(questions, materials) {
+    const safeQuestions = questions || [];
+    const safeMaterials = materials || [];
+    const questionList = safeQuestions.length > 0 ? safeQuestions.map((q) => `- \u7B2C${q.number || "?"}\u9898: ${(q.text || "").substring(0, 100)}...`).join("\n") : "\uFF08\u65E0\u9898\u76EE\uFF09";
+    const materialList = safeMaterials.length > 0 ? safeMaterials.map((m) => `- \u6750\u6599${m.number || "?"}: ${(m.content || "").substring(0, 100)}...`).join("\n") : "\uFF08\u65E0\u6750\u6599\uFF09";
     const prompt = `\u8BF7\u9A8C\u8BC1\u4EE5\u4E0B\u9898\u76EE\u548C\u6750\u6599\u7684\u62C6\u5206\u662F\u5426\u6B63\u786E\uFF1A
 
-\u9898\u76EE\u6570\u91CF: ${questions.length}
-\u6750\u6599\u6570\u91CF: ${materials.length}
+\u9898\u76EE\u6570\u91CF: ${safeQuestions.length}
+\u6750\u6599\u6570\u91CF: ${safeMaterials.length}
 
 \u9898\u76EE\u5217\u8868:
-${questions.map((q) => `- \u7B2C${q.number}\u9898: ${q.text.substring(0, 100)}...`).join("\n")}
+${questionList}
 
 \u6750\u6599\u5217\u8868:
-${materials.map((m) => `- \u6750\u6599${m.number}: ${m.content.substring(0, 100)}...`).join("\n")}
+${materialList}
 
 \u8BF7\u68C0\u67E5\uFF1A
 1. \u9898\u76EE\u7F16\u53F7\u662F\u5426\u8FDE\u7EED
@@ -1107,6 +1116,10 @@ var Processor = class {
     if (!existsSync3(dataDir)) {
       mkdirSync3(dataDir, { recursive: true });
     }
+    const problemDir = join4(dataDir, "problem");
+    if (!existsSync3(problemDir)) {
+      mkdirSync3(problemDir, { recursive: true });
+    }
     logger.info("Splitting content with LLM");
     const splitResult = await this.llm.splitContent(paper.raw_content);
     logger.info("Verifying split result");
@@ -1122,8 +1135,7 @@ var Processor = class {
         materialNumber: material.number,
         content: material.content
       });
-      materialIds.push({ id: materialId, number: material.number });
-      this.saveMaterialFile(dataDir, material.number, material.content);
+      materialIds.push({ id: materialId, number: material.number, content: material.content });
     }
     for (const question of splitResult.questions) {
       const questionId = createQuestion({
@@ -1134,11 +1146,18 @@ var Processor = class {
         score: question.score
       });
       questionIds.push({ id: questionId, number: question.number });
-      this.saveQuestionFile(dataDir, question.number, question.text, question.requirements);
-      for (const materialId of materialIds) {
+      const referencedMaterials = this.extractReferencedMaterials(question.text);
+      let relatedMaterials;
+      if (referencedMaterials.length > 0) {
+        relatedMaterials = materialIds.filter((m) => referencedMaterials.includes(m.number));
+      } else {
+        relatedMaterials = materialIds;
+      }
+      this.saveProblemFile(problemDir, question.number, question.text, question.requirements, relatedMaterials);
+      for (const material of relatedMaterials) {
         createProblemDoc({
           questionId,
-          materialId: materialId.id,
+          materialId: material.id,
           verified: false
         });
       }
@@ -1153,38 +1172,61 @@ var Processor = class {
       alreadyProcessed: false,
       paperId: paper.id,
       questions: questionIds,
-      materials: materialIds,
+      materials: materialIds.map((m) => ({ id: m.id, number: m.number })),
       verification
     };
   }
   /**
-   * Save material to file
+   * Extract referenced material numbers from question text
+   * e.g., "请根据材料2" -> [2], "根据材料1和材料3" -> [1, 3]
    */
-  saveMaterialFile(dataDir, number, content) {
-    const problemDir = join4(dataDir, `problem_${number}`);
-    if (!existsSync3(problemDir)) {
-      mkdirSync3(problemDir, { recursive: true });
+  extractReferencedMaterials(text) {
+    const numbers = [];
+    const patterns = [
+      /材料(\d+)/g,
+      // 材料1, 材料2
+      /材料(\d+)[、和与及至\-~～到]*(\d+)?/g
+      // 材料1和材料2, 材料1-3
+    ];
+    const matches = text.matchAll(/材料(\d+)/g);
+    for (const match of matches) {
+      const num = parseInt(match[1], 10);
+      if (!numbers.includes(num)) {
+        numbers.push(num);
+      }
     }
-    const filePath = join4(problemDir, "document.txt");
-    writeFileSync2(filePath, content, "utf-8");
-    logger.debug("Saved material file", { path: filePath });
+    return numbers.sort((a, b) => a - b);
   }
   /**
-   * Save question to file
+   * Save problem file combining question and materials
    */
-  saveQuestionFile(dataDir, number, text, requirements) {
-    const problemDir = join4(dataDir, `problem_${number}`);
-    if (!existsSync3(problemDir)) {
-      mkdirSync3(problemDir, { recursive: true });
-    }
-    const content = `\u3010\u9898\u76EE\u3011
+  saveProblemFile(problemDir, number, text, requirements, materials) {
+    let content = `\u3010\u9898\u76EE ${number}\u3011
 ${text}
 
 \u3010\u8981\u6C42\u3011
-${requirements || "\u65E0\u7279\u6B8A\u8981\u6C42"}`;
-    const filePath = join4(problemDir, "problem.txt");
+${requirements || "\u65E0\u7279\u6B8A\u8981\u6C42"}
+
+`;
+    if (materials.length > 0) {
+      content += `\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+`;
+      content += `\u3010\u7ED9\u5B9A\u6750\u6599\u3011
+`;
+      content += `\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+
+`;
+      for (const material of materials) {
+        content += `\u3010\u6750\u6599 ${material.number}\u3011
+`;
+        content += `${material.content}
+
+`;
+      }
+    }
+    const filePath = join4(problemDir, `problem_${number}.txt`);
     writeFileSync2(filePath, content, "utf-8");
-    logger.debug("Saved question file", { path: filePath });
+    logger.info("Saved problem file", { path: filePath, materialCount: materials.length });
   }
   /**
    * Process content directly (without database)

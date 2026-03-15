@@ -46,6 +46,12 @@ export class Processor {
       mkdirSync(dataDir, { recursive: true });
     }
 
+    // Create problem directory
+    const problemDir = join(dataDir, 'problem');
+    if (!existsSync(problemDir)) {
+      mkdirSync(problemDir, { recursive: true });
+    }
+
     // Split content using LLM
     logger.info('Splitting content with LLM');
     const splitResult = await this.llm.splitContent(paper.raw_content);
@@ -62,20 +68,17 @@ export class Processor {
     const questionIds = [];
     const materialIds = [];
 
-    // Save materials first
+    // Save materials to database
     for (const material of splitResult.materials) {
       const materialId = createMaterial({
         paperId: paper.id,
         materialNumber: material.number,
         content: material.content,
       });
-      materialIds.push({ id: materialId, number: material.number });
-
-      // Save to file
-      this.saveMaterialFile(dataDir, material.number, material.content);
+      materialIds.push({ id: materialId, number: material.number, content: material.content });
     }
 
-    // Save questions
+    // Save questions and create problem files
     for (const question of splitResult.questions) {
       const questionId = createQuestion({
         paperId: paper.id,
@@ -86,15 +89,27 @@ export class Processor {
       });
       questionIds.push({ id: questionId, number: question.number });
 
-      // Save to file
-      this.saveQuestionFile(dataDir, question.number, question.text, question.requirements);
+      // Extract referenced material numbers from question text
+      const referencedMaterials = this.extractReferencedMaterials(question.text);
 
-      // Create default relation with all materials
-      // (This is a simplification - in reality, each question may reference specific materials)
-      for (const materialId of materialIds) {
+      // Get related materials
+      let relatedMaterials;
+      if (referencedMaterials.length > 0) {
+        // Use only referenced materials
+        relatedMaterials = materialIds.filter(m => referencedMaterials.includes(m.number));
+      } else {
+        // Use all materials if no specific reference
+        relatedMaterials = materialIds;
+      }
+
+      // Create problem file combining question + materials
+      this.saveProblemFile(problemDir, question.number, question.text, question.requirements, relatedMaterials);
+
+      // Create database relations
+      for (const material of relatedMaterials) {
         createProblemDoc({
           questionId,
-          materialId: materialId.id,
+          materialId: material.id,
           verified: false,
         });
       }
@@ -113,36 +128,56 @@ export class Processor {
       alreadyProcessed: false,
       paperId: paper.id,
       questions: questionIds,
-      materials: materialIds,
+      materials: materialIds.map(m => ({ id: m.id, number: m.number })),
       verification,
     };
   }
 
   /**
-   * Save material to file
+   * Extract referenced material numbers from question text
+   * e.g., "请根据材料2" -> [2], "根据材料1和材料3" -> [1, 3]
    */
-  saveMaterialFile(dataDir, number, content) {
-    const problemDir = join(dataDir, `problem_${number}`);
-    if (!existsSync(problemDir)) {
-      mkdirSync(problemDir, { recursive: true });
+  extractReferencedMaterials(text) {
+    const numbers = [];
+
+    // Match patterns like "材料1", "材料2", "材料1-3", "材料1、材料2"
+    const patterns = [
+      /材料(\d+)/g,                    // 材料1, 材料2
+      /材料(\d+)[、和与及至\-~～到]*(\d+)?/g,  // 材料1和材料2, 材料1-3
+    ];
+
+    // Simple pattern: 材料 + 数字
+    const matches = text.matchAll(/材料(\d+)/g);
+    for (const match of matches) {
+      const num = parseInt(match[1], 10);
+      if (!numbers.includes(num)) {
+        numbers.push(num);
+      }
     }
-    const filePath = join(problemDir, 'document.txt');
-    writeFileSync(filePath, content, 'utf-8');
-    logger.debug('Saved material file', { path: filePath });
+
+    return numbers.sort((a, b) => a - b);
   }
 
   /**
-   * Save question to file
+   * Save problem file combining question and materials
    */
-  saveQuestionFile(dataDir, number, text, requirements) {
-    const problemDir = join(dataDir, `problem_${number}`);
-    if (!existsSync(problemDir)) {
-      mkdirSync(problemDir, { recursive: true });
+  saveProblemFile(problemDir, number, text, requirements, materials) {
+    let content = `【题目 ${number}】\n${text}\n\n【要求】\n${requirements || '无特殊要求'}\n\n`;
+
+    if (materials.length > 0) {
+      content += `═══════════════════════════════════════\n`;
+      content += `【给定材料】\n`;
+      content += `═══════════════════════════════════════\n\n`;
+
+      for (const material of materials) {
+        content += `【材料 ${material.number}】\n`;
+        content += `${material.content}\n\n`;
+      }
     }
-    const content = `【题目】\n${text}\n\n【要求】\n${requirements || '无特殊要求'}`;
-    const filePath = join(problemDir, 'problem.txt');
+
+    const filePath = join(problemDir, `problem_${number}.txt`);
     writeFileSync(filePath, content, 'utf-8');
-    logger.debug('Saved question file', { path: filePath });
+    logger.info('Saved problem file', { path: filePath, materialCount: materials.length });
   }
 
   /**

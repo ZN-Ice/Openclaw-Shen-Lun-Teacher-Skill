@@ -56,38 +56,43 @@ export class LLMClient {
    */
   async splitContent(rawContent) {
     // 限制内容长度
-    const maxLength = 10000;
+    const maxLength = 15000;
     const truncatedContent = rawContent.length > maxLength
       ? rawContent.substring(0, maxLength) + '\n[内容已截断]'
       : rawContent;
 
-    const prompt = `分析以下申论试卷，提取所有题目和材料。
+    const prompt = `你是一个申论试卷解析专家。请分析以下试卷内容，提取所有题目和材料。
 
-试卷内容：
+【重要规则】
+1. 仔细识别每个"材料X"标记（如"材料1"、"材料2"等），每个材料必须单独提取
+2. 仔细识别"三、作答要求"部分，提取所有题目
+3. 保持内容完整，不要合并或省略
+4. 材料编号必须连续且独立
+
+【试卷内容】
 ${truncatedContent}
 
-请严格按照以下JSON格式输出，不要输出任何其他内容：
+【输出格式】
+严格按照以下JSON格式输出，不要有任何其他文字：
 
 \`\`\`json
 {
   "questions": [
-    {"number": 1, "text": "题目完整内容", "requirements": "作答要求", "score": 20}
+    {"number": 1, "text": "题目完整文本", "requirements": "作答要求", "score": 20}
   ],
   "materials": [
-    {"number": 1, "content": "材料完整内容"}
+    {"number": 1, "content": "材料1的完整内容"},
+    {"number": 2, "content": "材料2的完整内容"}
   ]
 }
 \`\`\`
 
-注意：
-1. 只输出JSON代码块，不要有任何解释
-2. 保持内容完整，不要用省略号
-3. 使用英文引号和标点`;
+请开始解析：`;
 
     const response = await this.chat([
-      { role: 'system', content: '你是一个JSON数据提取工具，只输出JSON代码块。' },
+      { role: 'system', content: '你是申论试卷解析专家。严格按JSON格式输出，每个材料独立提取。' },
       { role: 'user', content: prompt },
-    ], { temperature: 0.1, maxTokens: 8192 });
+    ], { temperature: 0.1, maxTokens: 16384 });
 
     logger.debug('LLM split response', { responseLength: response.length, preview: response.substring(0, 200) });
 
@@ -217,16 +222,28 @@ ${truncatedContent}
    * Verify split results
    */
   async verifySplit(questions, materials) {
+    // 安全处理空数组和 undefined 值
+    const safeQuestions = questions || [];
+    const safeMaterials = materials || [];
+
+    const questionList = safeQuestions.length > 0
+      ? safeQuestions.map((q) => `- 第${q.number || '?'}题: ${(q.text || '').substring(0, 100)}...`).join('\n')
+      : '（无题目）';
+
+    const materialList = safeMaterials.length > 0
+      ? safeMaterials.map((m) => `- 材料${m.number || '?'}: ${(m.content || '').substring(0, 100)}...`).join('\n')
+      : '（无材料）';
+
     const prompt = `请验证以下题目和材料的拆分是否正确：
 
-题目数量: ${questions.length}
-材料数量: ${materials.length}
+题目数量: ${safeQuestions.length}
+材料数量: ${safeMaterials.length}
 
 题目列表:
-${questions.map((q) => `- 第${q.number}题: ${q.text.substring(0, 100)}...`).join('\n')}
+${questionList}
 
 材料列表:
-${materials.map((m) => `- 材料${m.number}: ${m.content.substring(0, 100)}...`).join('\n')}
+${materialList}
 
 请检查：
 1. 题目编号是否连续
