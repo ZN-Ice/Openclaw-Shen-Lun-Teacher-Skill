@@ -135,19 +135,26 @@ export class Processor {
 
   /**
    * Extract referenced material numbers from question text
-   * e.g., "请根据材料2" -> [2], "根据材料1和材料3" -> [1, 3]
+   * e.g., "请根据材料2" -> [2], "根据材料1和材料3" -> [1, 3], "给定资料1" -> [1]
+   * Also supports ranges like "给定资料1-4" -> [1, 2, 3, 4]
    */
   extractReferencedMaterials(text) {
     const numbers = [];
 
-    // Match patterns like "材料1", "材料2", "材料1-3", "材料1、材料2"
-    const patterns = [
-      /材料(\d+)/g,                    // 材料1, 材料2
-      /材料(\d+)[、和与及至\-~～到]*(\d+)?/g,  // 材料1和材料2, 材料1-3
-    ];
+    // Match range patterns like "资料1-4", "材料1-3" first
+    const rangeMatches = text.matchAll(/(?:材料|资料)(\d+)\s*[-–—~～至]\s*(\d+)/g);
+    for (const match of rangeMatches) {
+      const start = parseInt(match[1], 10);
+      const end = parseInt(match[2], 10);
+      for (let i = start; i <= end; i++) {
+        if (!numbers.includes(i)) {
+          numbers.push(i);
+        }
+      }
+    }
 
-    // Simple pattern: 材料 + 数字
-    const matches = text.matchAll(/材料(\d+)/g);
+    // Match single patterns like "材料1", "资料1", "给定资料1"
+    const matches = text.matchAll(/(?:材料|资料)(\d+)/g);
     for (const match of matches) {
       const num = parseInt(match[1], 10);
       if (!numbers.includes(num)) {
