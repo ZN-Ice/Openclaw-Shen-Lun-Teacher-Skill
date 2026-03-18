@@ -16,8 +16,7 @@
 
 | 方法 | 说明 | 参数 |
 |------|------|------|
-| `scrapePaper(province, year)` | 爬取指定省份和年份的试卷 | province: 省份, year: 年份 |
-| `processPaper(province, year)` | 解析试卷，拆分题目和材料 | province: 省份, year: 年份 |
+| `importPaper(province, year)` | 导入试卷（爬取+解析一步完成） | province: 省份, year: 年份 |
 | `getAvailablePapers()` | 获取可用试卷列表 | 无 |
 
 ### 2. 智能出题
@@ -135,9 +134,8 @@ node scripts/shenlun.js score "我的答案"
 node scripts/shenlun.js stats
 node scripts/shenlun.js list
 
-# 爬取/处理试卷
-node scripts/shenlun.js scrape 广东 2024
-node scripts/shenlun.js process 广东 2024
+# 导入试卷（爬取+解析）
+node scripts/shenlun.js import 广东 2024
 ```
 
 ## 数据库结构

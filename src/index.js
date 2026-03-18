@@ -80,8 +80,7 @@ const INTENT_PATTERNS = {
   analyze_thought: [/我的思路/, /我想/, /我是这样想/],
   request_hint: [/提示/, /暗示/, /点拨/, /给点提示/],
   request_score: [/评分/, /打分/, /多少分/, /得分/],
-  scrape_paper: [/爬取/, /下载.*试卷/, /抓取/],
-  process_paper: [/处理.*试卷/, /解析.*试卷/],
+  import_paper: [/导入.*试卷/, /爬取/, /下载.*试卷/, /抓取/, /获取.*试卷/],
   help: [/帮助/, /help/, /怎么用/, /功能/],
   stats: [/统计/, /进度/, /做了多少/],
   list_papers: [/有哪些.*试卷/, /可用.*试卷/, /试卷列表/],
@@ -144,6 +143,55 @@ export class ShenLunTeacherSkill {
    */
   async processPaper(province, year) {
     return await this.processor.processPaper(province, year);
+  }
+
+  /**
+   * 导入试卷（爬取+解析一步完成）
+   */
+  async importPaper(province, year) {
+    // 先爬取
+    const scrapeResult = await this.scrapePaper(province, year);
+
+    // 如果试卷已存在但未处理，继续处理
+    if (scrapeResult.existing) {
+      // 检查是否已处理
+      const processResult = await this.processPaper(province, year);
+      if (processResult.alreadyProcessed) {
+        return {
+          success: true,
+          existing: true,
+          paperId: scrapeResult.paperId,
+          message: '试卷已导入并处理过',
+          stats: {
+            questions: processResult.questions?.length || 0,
+            materials: processResult.materials?.length || 0,
+          },
+        };
+      }
+      return {
+        success: true,
+        paperId: scrapeResult.paperId,
+        message: '试卷导入完成',
+        stats: {
+          questions: processResult.questions?.length || 0,
+          materials: processResult.materials?.length || 0,
+        },
+        verification: processResult.verification,
+      };
+    }
+
+    // 新爬取的试卷，继续处理
+    const processResult = await this.processPaper(province, year);
+    return {
+      success: true,
+      paperId: scrapeResult.paperId,
+      message: '试卷导入完成',
+      stats: {
+        questions: processResult.questions?.length || 0,
+        materials: processResult.materials?.length || 0,
+      },
+      verification: processResult.verification,
+    };
   }
 
   // ==================== 出题功能 ====================
@@ -403,11 +451,8 @@ export class ShenLunTeacherSkill {
         case 'request_score':
           return '请直接输入你的答案，系统会自动评分。';
 
-        case 'scrape_paper':
-          return await this.handleScrapePaper(userInput);
-
-        case 'process_paper':
-          return await this.handleProcessPaper(userInput);
+        case 'import_paper':
+          return await this.handleImportPaper(userInput);
 
         case 'list_papers':
           return await this.handleListPapers();
@@ -570,54 +615,34 @@ export class ShenLunTeacherSkill {
   }
 
   /**
-   * Handle scrape paper
+   * Handle import paper (scrape + process)
    */
-  async handleScrapePaper(userInput) {
+  async handleImportPaper(userInput) {
     const provinceMatch = userInput.match(/(\w+)省?/);
     const yearMatch = userInput.match(/(\d{4})/);
 
     if (!provinceMatch || !yearMatch) {
-      return '请指定省份和年份，例如："爬取广东省2024年试卷"';
+      return '请指定省份和年份，例如："导入广东省2024年试卷"';
     }
 
     const province = provinceMatch[1];
     const year = parseInt(yearMatch[1]);
 
-    const result = await this.scrapePaper(province, year);
+    const result = await this.importPaper(province, year);
 
     if (result.existing) {
-      return `试卷已存在 (ID: ${result.paperId})。输入"处理${province}省${year}年试卷"进行解析。`;
+      return `✅ ${result.message} (ID: ${result.paperId})\n\n题目数: ${result.stats.questions}\n材料数: ${result.stats.materials}`;
     }
 
-    return `✅ 试卷爬取完成 (ID: ${result.paperId})\n\n输入"处理${province}省${year}年试卷"进行解析。`;
-  }
+    let response = `✅ ${result.message} (ID: ${result.paperId})\n\n`;
+    response += `题目数: ${result.stats.questions}\n`;
+    response += `材料数: ${result.stats.materials}`;
 
-  /**
-   * Handle process paper
-   */
-  async handleProcessPaper(userInput) {
-    const provinceMatch = userInput.match(/(\w+)省?/);
-    const yearMatch = userInput.match(/(\d{4})/);
-
-    if (!provinceMatch || !yearMatch) {
-      return '请指定省份和年份，例如："处理广东省2024年试卷"';
+    if (result.verification?.issues?.length > 0) {
+      response += `\n\n⚠️ 问题: ${result.verification.issues.join(', ')}`;
     }
 
-    const province = provinceMatch[1];
-    const year = parseInt(yearMatch[1]);
-
-    const result = await this.processPaper(province, year);
-
-    if (result.alreadyProcessed) {
-      return `试卷已处理过 (ID: ${result.paperId})`;
-    }
-
-    return `✅ 试卷处理完成\n\n` +
-           `题目数: ${result.questions.length}\n` +
-           `材料数: ${result.materials.length}` +
-           (result.verification?.issues?.length > 0
-             ? `\n\n⚠️ 问题: ${result.verification.issues.join(', ')}`
-             : '');
+    return response;
   }
 
   /**
@@ -682,8 +707,7 @@ export class ShenLunTeacherSkill {
 • "答案是..." - 提交答案获取评分
 
 **数据管理:**
-• "爬取XX省XXXX年试卷" - 下载试卷
-• "处理XX省XXXX年试卷" - 解析试卷
+• "导入XX省XXXX年试卷" - 下载并解析试卷
 • "有哪些试卷" - 查看可用试卷
 
 **其他:**
@@ -717,8 +741,7 @@ function printCliHelp() {
   hint                   获取提示
   score <答案>           评分答案
   stats                  查看学习统计
-  scrape <省> <年>       爬取试卷
-  process <省> <年>      处理试卷
+  import <省> <年>       导入试卷（爬取+解析）
   list                   查看可用试卷
   help, -h               显示帮助
 
@@ -730,8 +753,7 @@ function printCliHelp() {
   node scripts/shenlun.js hint                   # 获取提示
   node scripts/shenlun.js score "我的答案"       # 评分
   node scripts/shenlun.js stats                  # 查看统计
-  node scripts/shenlun.js scrape 广东 2024      # 爬取试卷
-  node scripts/shenlun.js process 广东 2024      # 处理试卷
+  node scripts/shenlun.js import 广东 2024      # 导入试卷
   node scripts/shenlun.js list                   # 查看可用试卷
 `);
 }
@@ -754,38 +776,24 @@ async function main() {
     await skill.initialize();
 
     switch (command) {
-      case 'scrape': {
+      case 'import': {
         const province = args[1];
         const year = parseInt(args[2]);
         if (!province || !year) {
           console.error('错误: 需要指定省份和年份');
-          console.error('用法: node src/index.js scrape <省份> <年份>');
+          console.error('用法: node scripts/shenlun.js import <省份> <年份>');
           process.exit(1);
         }
-        const result = await skill.scrapePaper(province, year);
+        const result = await skill.importPaper(province, year);
         if (result.existing) {
-          console.log(`试卷已存在 (ID: ${result.paperId})`);
+          console.log(`✅ ${result.message} (ID: ${result.paperId})`);
         } else {
-          console.log(`✅ 试卷爬取完成 (ID: ${result.paperId})`);
+          console.log(`✅ ${result.message} (ID: ${result.paperId})`);
         }
-        break;
-      }
-
-      case 'process': {
-        const province = args[1];
-        const year = parseInt(args[2]);
-        if (!province || !year) {
-          console.error('错误: 需要指定省份和年份');
-          console.error('用法: node src/index.js process <省份> <年份>');
-          process.exit(1);
-        }
-        const result = await skill.processPaper(province, year);
-        if (result.alreadyProcessed) {
-          console.log(`试卷已处理过 (ID: ${result.paperId})`);
-        } else {
-          console.log(`✅ 试卷处理完成`);
-          console.log(`题目数: ${result.questions.length}`);
-          console.log(`材料数: ${result.materials.length}`);
+        console.log(`题目数: ${result.stats.questions}`);
+        console.log(`材料数: ${result.stats.materials}`);
+        if (result.verification?.issues?.length > 0) {
+          console.log(`\n⚠️ 问题: ${result.verification.issues.join(', ')}`);
         }
         break;
       }

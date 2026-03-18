@@ -10,6 +10,7 @@ import {
   createMaterial,
   createProblemDoc,
   findMaterialsByPaper,
+  findQuestionsByPaper,
 } from '../db/index.js';
 
 /**
@@ -33,7 +34,15 @@ export class Processor {
 
     if (paper.processed_at) {
       logger.info('Paper already processed', { paperId: paper.id });
-      return { alreadyProcessed: true, paperId: paper.id };
+      // Return existing questions and materials from database
+      const questions = findQuestionsByPaper(paper.id);
+      const materials = findMaterialsByPaper(paper.id);
+      return {
+        alreadyProcessed: true,
+        paperId: paper.id,
+        questions: questions.map(q => ({ id: q.id, number: q.question_number })),
+        materials: materials.map(m => ({ id: m.id, number: m.material_number })),
+      };
     }
 
     if (!paper.raw_content) {

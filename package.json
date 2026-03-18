@@ -13,8 +13,7 @@
     "score": "node scripts/shenlun.js score",
     "stats": "node scripts/shenlun.js stats",
     "list": "node scripts/shenlun.js list",
-    "scrape": "node scripts/shenlun.js scrape",
-    "process": "node scripts/shenlun.js process",
+    "import": "node scripts/shenlun.js import",
     "dev": "node src/index.js",
     "test": "node --test src/**/*.test.js"
   },

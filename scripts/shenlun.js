@@ -245,6 +245,11 @@ function createQuestion(data) {
   });
   return result.lastInsertRowid;
 }
+function findQuestionsByPaper(paperId) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(`SELECT * FROM questions WHERE paper_id = ? ORDER BY question_number`);
+  return stmt.all(paperId);
+}
 function createMaterial(data) {
   const db2 = getDatabase();
   const stmt = db2.prepare(`
@@ -257,6 +262,11 @@ function createMaterial(data) {
     content: data.content
   });
   return result.lastInsertRowid;
+}
+function findMaterialsByPaper(paperId) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(`SELECT * FROM materials WHERE paper_id = ? ORDER BY material_number`);
+  return stmt.all(paperId);
 }
 function createProblemDoc(data) {
   const db2 = getDatabase();
@@ -1107,7 +1117,14 @@ var Processor = class {
     }
     if (paper.processed_at) {
       logger.info("Paper already processed", { paperId: paper.id });
-      return { alreadyProcessed: true, paperId: paper.id };
+      const questions = findQuestionsByPaper(paper.id);
+      const materials = findMaterialsByPaper(paper.id);
+      return {
+        alreadyProcessed: true,
+        paperId: paper.id,
+        questions: questions.map((q) => ({ id: q.id, number: q.question_number })),
+        materials: materials.map((m) => ({ id: m.id, number: m.material_number }))
+      };
     }
     if (!paper.raw_content) {
       throw new Error("Paper has no raw content");
@@ -1456,8 +1473,7 @@ var INTENT_PATTERNS = {
   analyze_thought: [/我的思路/, /我想/, /我是这样想/],
   request_hint: [/提示/, /暗示/, /点拨/, /给点提示/],
   request_score: [/评分/, /打分/, /多少分/, /得分/],
-  scrape_paper: [/爬取/, /下载.*试卷/, /抓取/],
-  process_paper: [/处理.*试卷/, /解析.*试卷/],
+  import_paper: [/导入.*试卷/, /爬取/, /下载.*试卷/, /抓取/, /获取.*试卷/],
   help: [/帮助/, /help/, /怎么用/, /功能/],
   stats: [/统计/, /进度/, /做了多少/],
   list_papers: [/有哪些.*试卷/, /可用.*试卷/, /试卷列表/]
@@ -1506,6 +1522,48 @@ var ShenLunTeacherSkill = class {
    */
   async processPaper(province, year) {
     return await this.processor.processPaper(province, year);
+  }
+  /**
+   * 导入试卷（爬取+解析一步完成）
+   */
+  async importPaper(province, year) {
+    const scrapeResult = await this.scrapePaper(province, year);
+    if (scrapeResult.existing) {
+      const processResult2 = await this.processPaper(province, year);
+      if (processResult2.alreadyProcessed) {
+        return {
+          success: true,
+          existing: true,
+          paperId: scrapeResult.paperId,
+          message: "\u8BD5\u5377\u5DF2\u5BFC\u5165\u5E76\u5904\u7406\u8FC7",
+          stats: {
+            questions: processResult2.questions?.length || 0,
+            materials: processResult2.materials?.length || 0
+          }
+        };
+      }
+      return {
+        success: true,
+        paperId: scrapeResult.paperId,
+        message: "\u8BD5\u5377\u5BFC\u5165\u5B8C\u6210",
+        stats: {
+          questions: processResult2.questions?.length || 0,
+          materials: processResult2.materials?.length || 0
+        },
+        verification: processResult2.verification
+      };
+    }
+    const processResult = await this.processPaper(province, year);
+    return {
+      success: true,
+      paperId: scrapeResult.paperId,
+      message: "\u8BD5\u5377\u5BFC\u5165\u5B8C\u6210",
+      stats: {
+        questions: processResult.questions?.length || 0,
+        materials: processResult.materials?.length || 0
+      },
+      verification: processResult.verification
+    };
   }
   // ==================== 出题功能 ====================
   /**
@@ -1706,10 +1764,8 @@ var ShenLunTeacherSkill = class {
           return await this.handleRequestHint(sessionId);
         case "request_score":
           return "\u8BF7\u76F4\u63A5\u8F93\u5165\u4F60\u7684\u7B54\u6848\uFF0C\u7CFB\u7EDF\u4F1A\u81EA\u52A8\u8BC4\u5206\u3002";
-        case "scrape_paper":
-          return await this.handleScrapePaper(userInput);
-        case "process_paper":
-          return await this.handleProcessPaper(userInput);
+        case "import_paper":
+          return await this.handleImportPaper(userInput);
         case "list_papers":
           return await this.handleListPapers();
         case "help":
@@ -1864,45 +1920,35 @@ ${result.analysis}`;
 ${result.hint}`;
   }
   /**
-   * Handle scrape paper
+   * Handle import paper (scrape + process)
    */
-  async handleScrapePaper(userInput) {
+  async handleImportPaper(userInput) {
     const provinceMatch = userInput.match(/(\w+)省?/);
     const yearMatch = userInput.match(/(\d{4})/);
     if (!provinceMatch || !yearMatch) {
-      return '\u8BF7\u6307\u5B9A\u7701\u4EFD\u548C\u5E74\u4EFD\uFF0C\u4F8B\u5982\uFF1A"\u722C\u53D6\u5E7F\u4E1C\u77012024\u5E74\u8BD5\u5377"';
+      return '\u8BF7\u6307\u5B9A\u7701\u4EFD\u548C\u5E74\u4EFD\uFF0C\u4F8B\u5982\uFF1A"\u5BFC\u5165\u5E7F\u4E1C\u77012024\u5E74\u8BD5\u5377"';
     }
     const province = provinceMatch[1];
     const year = parseInt(yearMatch[1]);
-    const result = await this.scrapePaper(province, year);
+    const result = await this.importPaper(province, year);
     if (result.existing) {
-      return `\u8BD5\u5377\u5DF2\u5B58\u5728 (ID: ${result.paperId})\u3002\u8F93\u5165"\u5904\u7406${province}\u7701${year}\u5E74\u8BD5\u5377"\u8FDB\u884C\u89E3\u6790\u3002`;
-    }
-    return `\u2705 \u8BD5\u5377\u722C\u53D6\u5B8C\u6210 (ID: ${result.paperId})
+      return `\u2705 ${result.message} (ID: ${result.paperId})
 
-\u8F93\u5165"\u5904\u7406${province}\u7701${year}\u5E74\u8BD5\u5377"\u8FDB\u884C\u89E3\u6790\u3002`;
-  }
-  /**
-   * Handle process paper
-   */
-  async handleProcessPaper(userInput) {
-    const provinceMatch = userInput.match(/(\w+)省?/);
-    const yearMatch = userInput.match(/(\d{4})/);
-    if (!provinceMatch || !yearMatch) {
-      return '\u8BF7\u6307\u5B9A\u7701\u4EFD\u548C\u5E74\u4EFD\uFF0C\u4F8B\u5982\uFF1A"\u5904\u7406\u5E7F\u4E1C\u77012024\u5E74\u8BD5\u5377"';
+\u9898\u76EE\u6570: ${result.stats.questions}
+\u6750\u6599\u6570: ${result.stats.materials}`;
     }
-    const province = provinceMatch[1];
-    const year = parseInt(yearMatch[1]);
-    const result = await this.processPaper(province, year);
-    if (result.alreadyProcessed) {
-      return `\u8BD5\u5377\u5DF2\u5904\u7406\u8FC7 (ID: ${result.paperId})`;
+    let response = `\u2705 ${result.message} (ID: ${result.paperId})
+
+`;
+    response += `\u9898\u76EE\u6570: ${result.stats.questions}
+`;
+    response += `\u6750\u6599\u6570: ${result.stats.materials}`;
+    if (result.verification?.issues?.length > 0) {
+      response += `
+
+\u26A0\uFE0F \u95EE\u9898: ${result.verification.issues.join(", ")}`;
     }
-    return `\u2705 \u8BD5\u5377\u5904\u7406\u5B8C\u6210
-
-\u9898\u76EE\u6570: ${result.questions.length}
-\u6750\u6599\u6570: ${result.materials.length}` + (result.verification?.issues?.length > 0 ? `
-
-\u26A0\uFE0F \u95EE\u9898: ${result.verification.issues.join(", ")}` : "");
+    return response;
   }
   /**
    * Handle list papers
@@ -1971,8 +2017,7 @@ ${result.hint}`;
 \u2022 "\u7B54\u6848\u662F..." - \u63D0\u4EA4\u7B54\u6848\u83B7\u53D6\u8BC4\u5206
 
 **\u6570\u636E\u7BA1\u7406:**
-\u2022 "\u722C\u53D6XX\u7701XXXX\u5E74\u8BD5\u5377" - \u4E0B\u8F7D\u8BD5\u5377
-\u2022 "\u5904\u7406XX\u7701XXXX\u5E74\u8BD5\u5377" - \u89E3\u6790\u8BD5\u5377
+\u2022 "\u5BFC\u5165XX\u7701XXXX\u5E74\u8BD5\u5377" - \u4E0B\u8F7D\u5E76\u89E3\u6790\u8BD5\u5377
 \u2022 "\u6709\u54EA\u4E9B\u8BD5\u5377" - \u67E5\u770B\u53EF\u7528\u8BD5\u5377
 
 **\u5176\u4ED6:**
@@ -2001,8 +2046,7 @@ function printCliHelp() {
   hint                   \u83B7\u53D6\u63D0\u793A
   score <\u7B54\u6848>           \u8BC4\u5206\u7B54\u6848
   stats                  \u67E5\u770B\u5B66\u4E60\u7EDF\u8BA1
-  scrape <\u7701> <\u5E74>       \u722C\u53D6\u8BD5\u5377
-  process <\u7701> <\u5E74>      \u5904\u7406\u8BD5\u5377
+  import <\u7701> <\u5E74>       \u5BFC\u5165\u8BD5\u5377\uFF08\u722C\u53D6+\u89E3\u6790\uFF09
   list                   \u67E5\u770B\u53EF\u7528\u8BD5\u5377
   help, -h               \u663E\u793A\u5E2E\u52A9
 
@@ -2014,8 +2058,7 @@ function printCliHelp() {
   node scripts/shenlun.js hint                   # \u83B7\u53D6\u63D0\u793A
   node scripts/shenlun.js score "\u6211\u7684\u7B54\u6848"       # \u8BC4\u5206
   node scripts/shenlun.js stats                  # \u67E5\u770B\u7EDF\u8BA1
-  node scripts/shenlun.js scrape \u5E7F\u4E1C 2024      # \u722C\u53D6\u8BD5\u5377
-  node scripts/shenlun.js process \u5E7F\u4E1C 2024      # \u5904\u7406\u8BD5\u5377
+  node scripts/shenlun.js import \u5E7F\u4E1C 2024      # \u5BFC\u5165\u8BD5\u5377
   node scripts/shenlun.js list                   # \u67E5\u770B\u53EF\u7528\u8BD5\u5377
 `);
 }
@@ -2031,37 +2074,25 @@ async function main() {
   try {
     await skill.initialize();
     switch (command) {
-      case "scrape": {
+      case "import": {
         const province = args[1];
         const year = parseInt(args[2]);
         if (!province || !year) {
           console.error("\u9519\u8BEF: \u9700\u8981\u6307\u5B9A\u7701\u4EFD\u548C\u5E74\u4EFD");
-          console.error("\u7528\u6CD5: node src/index.js scrape <\u7701\u4EFD> <\u5E74\u4EFD>");
+          console.error("\u7528\u6CD5: node scripts/shenlun.js import <\u7701\u4EFD> <\u5E74\u4EFD>");
           process.exit(1);
         }
-        const result = await skill.scrapePaper(province, year);
+        const result = await skill.importPaper(province, year);
         if (result.existing) {
-          console.log(`\u8BD5\u5377\u5DF2\u5B58\u5728 (ID: ${result.paperId})`);
+          console.log(`\u2705 ${result.message} (ID: ${result.paperId})`);
         } else {
-          console.log(`\u2705 \u8BD5\u5377\u722C\u53D6\u5B8C\u6210 (ID: ${result.paperId})`);
+          console.log(`\u2705 ${result.message} (ID: ${result.paperId})`);
         }
-        break;
-      }
-      case "process": {
-        const province = args[1];
-        const year = parseInt(args[2]);
-        if (!province || !year) {
-          console.error("\u9519\u8BEF: \u9700\u8981\u6307\u5B9A\u7701\u4EFD\u548C\u5E74\u4EFD");
-          console.error("\u7528\u6CD5: node src/index.js process <\u7701\u4EFD> <\u5E74\u4EFD>");
-          process.exit(1);
-        }
-        const result = await skill.processPaper(province, year);
-        if (result.alreadyProcessed) {
-          console.log(`\u8BD5\u5377\u5DF2\u5904\u7406\u8FC7 (ID: ${result.paperId})`);
-        } else {
-          console.log(`\u2705 \u8BD5\u5377\u5904\u7406\u5B8C\u6210`);
-          console.log(`\u9898\u76EE\u6570: ${result.questions.length}`);
-          console.log(`\u6750\u6599\u6570: ${result.materials.length}`);
+        console.log(`\u9898\u76EE\u6570: ${result.stats.questions}`);
+        console.log(`\u6750\u6599\u6570: ${result.stats.materials}`);
+        if (result.verification?.issues?.length > 0) {
+          console.log(`
+\u26A0\uFE0F \u95EE\u9898: ${result.verification.issues.join(", ")}`);
         }
         break;
       }
